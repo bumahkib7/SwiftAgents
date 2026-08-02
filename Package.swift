@@ -28,6 +28,12 @@ let package = Package(
 
         // Retry logic and circuit breaker (production-tested)
         .package(url: "https://github.com/CorvidLabs/swift-retry", from: "0.1.0"),
+
+        // OpenAI integration (chat, embeddings, function calling)
+        .package(url: "https://github.com/MacPaw/OpenAI", branch: "main"),
+
+        // Local embeddings (BERT, RoBERTa, etc.) - zero API cost
+        .package(url: "https://github.com/jkrukowski/swift-embeddings", from: "0.1.0"),
     ],
     targets: [
         // Core: Wraps LLM backends behind a protocol
@@ -36,6 +42,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Retry", package: "swift-retry"),
+                .product(name: "OpenAI", package: "OpenAI"),
             ]
         ),
 
@@ -54,6 +61,7 @@ let package = Package(
             dependencies: [
                 "AgentCore",
                 .product(name: "SQLiteVec", package: "SQLiteVec"),
+                .product(name: "Embeddings", package: "swift-embeddings"),
             ]
         ),
 
