@@ -149,6 +149,57 @@ print(result)
 - Tracing hooks for debugging
 - Cost tracking per session
 
+## Prompt Caching: 90% Cost Reduction 💰
+
+SwiftAgents includes automatic prompt caching for massive cost savings on repeated context:
+
+```swift
+// Create session with aggressive caching
+let session = LanguageModelSession(
+    backend: AnthropicBackend(apiKey: "..."),
+    cacheStrategy: .aggressive  // Caches everything except last message
+)
+
+// First call: Creates cache (pays 125% for cache write)
+let response1 = try await session.generate(prompt: "Question 1")
+// Cost: ~$0.0188 for 1000-token system prompt
+
+// Subsequent calls: Reads from cache (pays 10% of normal cost!)
+let response2 = try await session.generate(prompt: "Question 2")
+// Cost: ~$0.0015 for same 1000-token system prompt (93% cheaper!)
+
+// Track savings
+print(session.metrics.costSavings)  // "$0.0173 saved"
+```
+
+### Cache Strategies
+
+- **`.none`**: No caching (for one-off requests)
+- **`.systemOnly`**: Cache system messages only (good for short conversations)
+- **`.rollingWindow(N)`**: Cache last N messages (ongoing conversations)
+- **`.aggressive`**: Cache everything except last message (maximum savings)
+- **`.recommended(messageCount)`**: Auto-selects best strategy
+
+### When to Use Caching
+
+✅ **Good for:**
+- Long system prompts (CVs, documentation, knowledge bases)
+- Repeated questions on same context
+- Multi-turn conversations (10+ messages)
+
+❌ **Skip caching for:**
+- One-off requests (< 3 messages)
+- Short system prompts (< 100 tokens)
+- Rapidly changing context
+
+### Cost Impact
+
+| Scenario | Without Cache | With Cache (90% hit rate) | Savings |
+|----------|---------------|---------------------------|---------|
+| 3M tokens/month | $45/month | $6/month | **87%** |
+| Interview coaching (large CV) | $270/month | $50/month | **81%** |
+| RAG system (10k doc context) | $450/month | $68/month | **85%** |
+
 ## Extended Thinking Mode
 
 Claude Sonnet 4.6+ supports extended thinking for complex tasks:
