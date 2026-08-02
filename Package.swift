@@ -67,13 +67,13 @@ let package = Package(
         ),
 
         // Tools: Tool registry, parallel/sequential composition
-        .target(name: "AgentTools", dependencies: ["AgentCore"]),
+        .target(name: "AgentTools", dependencies: ["AgentCore", "AgentRAG"]),
 
         // Chains: ReAct loop + chain DSL
         .target(
             name: "AgentChains",
             dependencies: [
-                "AgentCore", "AgentTools", "AgentMemory",
+                "AgentCore", "AgentTools", "AgentMemory", "AgentRAG",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ]
         ),

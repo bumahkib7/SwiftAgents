@@ -16,7 +16,7 @@ public struct OpenAIEmbedder: EmbeddingProvider {
         case textEmbedding3Large = "text-embedding-3-large"  // 3072 dims, $0.13/1M tokens
         case textEmbeddingAda002 = "text-embedding-ada-002"  // 1536 dims, legacy
 
-        var dimensions: Int {
+        public var dimensions: Int {
             switch self {
             case .textEmbedding3Small, .textEmbeddingAda002:
                 return 1536
