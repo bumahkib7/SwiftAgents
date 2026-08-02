@@ -31,15 +31,16 @@ public struct OpenAIBackend: LanguageModelBackend {
         // Convert our messages to OpenAI format
         let chatMessages = messages.map { toChatMessage($0) }
 
-        // TODO: Add tool support (requires JSONSchema conversion)
-        // For now, ignore tools parameter
+        // Convert tools if present
+        let chatTools: [ChatQuery.ChatCompletionToolParam]? = tools.isEmpty ? nil : tools.compactMap { toChatTool($0) }
 
         // Build query - model is just a string
         let query = ChatQuery(
             messages: chatMessages,
             model: modelName,
             maxCompletionTokens: maxTokens,
-            temperature: temperature
+            temperature: temperature,
+            tools: chatTools
         )
 
         // Call OpenAI API
@@ -62,15 +63,16 @@ public struct OpenAIBackend: LanguageModelBackend {
         // Convert our messages to OpenAI format
         let chatMessages = messages.map { toChatMessage($0) }
 
-        // TODO: Add tool support (requires JSONSchema conversion)
-        // For now, ignore tools parameter
+        // Convert tools if present
+        let chatTools: [ChatQuery.ChatCompletionToolParam]? = tools.isEmpty ? nil : tools.compactMap { toChatTool($0) }
 
         // Build query - model is just a string
         let query = ChatQuery(
             messages: chatMessages,
             model: modelName,
             maxCompletionTokens: maxTokens,
-            temperature: temperature
+            temperature: temperature,
+            tools: chatTools
         )
 
         // Stream chunks
@@ -128,9 +130,63 @@ public struct OpenAIBackend: LanguageModelBackend {
         )!  // Force unwrap is safe - we always provide content
     }
 
-    // TODO: Add tool support
-    // Need to convert [String: Any] to JSONSchema
-    // private func toChatTool(_ tool: Tool) -> ChatQuery.ChatCompletionToolParam { ... }
+    private func toChatTool(_ tool: Tool) -> ChatQuery.ChatCompletionToolParam? {
+        // Convert [String: Any] to JSONSchema
+        guard let schema = convertToJSONSchema(tool.inputSchema) else {
+            logger.warning("Failed to convert tool schema: \(tool.name)")
+            return nil
+        }
+
+        return ChatQuery.ChatCompletionToolParam(
+            function: .init(
+                name: tool.name,
+                description: tool.description,
+                parameters: schema
+            )
+        )
+    }
+
+    /// Convert [String: Any] to JSONSchema recursively
+    private func convertToJSONSchema(_ dict: [String: Any]) -> JSONSchema? {
+        var schemaObject: [String: AnyJSONDocument] = [:]
+
+        for (key, value) in dict {
+            guard let doc = convertToJSONDocument(value) else {
+                return nil
+            }
+            schemaObject[key] = doc
+        }
+
+        return .object(schemaObject)
+    }
+
+    /// Convert Any value to AnyJSONDocument
+    private func convertToJSONDocument(_ value: Any) -> AnyJSONDocument? {
+        switch value {
+        case let intVal as Int:
+            return AnyJSONDocument(intVal)
+        case let doubleVal as Double:
+            return AnyJSONDocument(Decimal(doubleVal))
+        case let stringVal as String:
+            return AnyJSONDocument(stringVal)
+        case let boolVal as Bool:
+            return AnyJSONDocument(boolVal)
+        case let arrayVal as [Any]:
+            let docs = arrayVal.compactMap { convertToJSONDocument($0) }
+            guard docs.count == arrayVal.count else { return nil }
+            return AnyJSONDocument(docs)
+        case let dictVal as [String: Any]:
+            var docDict: [String: AnyJSONDocument] = [:]
+            for (k, v) in dictVal {
+                guard let doc = convertToJSONDocument(v) else { return nil }
+                docDict[k] = doc
+            }
+            return AnyJSONDocument(docDict)
+        default:
+            logger.warning("Unsupported JSON value type: \(type(of: value))")
+            return nil
+        }
+    }
 
     private func parseResponse(_ result: ChatResult) throws -> AgentResponse {
         guard let choice = result.choices.first else {
