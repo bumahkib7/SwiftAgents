@@ -32,6 +32,7 @@ public final class ReActAgent {
     }
 
     /// Run the agent on a task
+    @available(iOS 13.0.0, *)
     public func run(
         task: String,
         extendedThinking: Bool = true,

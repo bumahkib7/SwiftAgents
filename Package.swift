@@ -25,6 +25,9 @@ let package = Package(
 
         // Logging
         .package(url: "https://github.com/apple/swift-log", from: "1.6.0"),
+
+        // Retry logic and circuit breaker (production-tested)
+        .package(url: "https://github.com/CorvidLabs/swift-retry", from: "0.1.0"),
     ],
     targets: [
         // Core: Wraps LLM backends behind a protocol
@@ -32,6 +35,7 @@ let package = Package(
             name: "AgentCore",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "Retry", package: "swift-retry"),
             ]
         ),
 

@@ -5,6 +5,7 @@
 import Foundation
 import Logging
 
+@available(iOS 13.0.0, *)
 public struct AnthropicBackend: LanguageModelBackend {
     private let apiKey: String
     private let model: String
