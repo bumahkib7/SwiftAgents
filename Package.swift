@@ -32,8 +32,8 @@ let package = Package(
         // OpenAI integration (chat, embeddings, function calling)
         .package(url: "https://github.com/MacPaw/OpenAI", branch: "main"),
 
-        // Local embeddings (BERT, RoBERTa, etc.) - zero API cost
-        .package(url: "https://github.com/jkrukowski/swift-embeddings", from: "0.1.0"),
+        // TODO: Add back when network stable - binary download times out
+        // .package(url: "https://github.com/jkrukowski/swift-embeddings", from: "0.1.0"),
     ],
     targets: [
         // Core: Wraps LLM backends behind a protocol
@@ -61,7 +61,8 @@ let package = Package(
             dependencies: [
                 "AgentCore",
                 .product(name: "SQLiteVec", package: "SQLiteVec"),
-                .product(name: "Embeddings", package: "swift-embeddings"),
+                // TODO: Add back when network stable
+                // .product(name: "Embeddings", package: "swift-embeddings"),
             ]
         ),
 
