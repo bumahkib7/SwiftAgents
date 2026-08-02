@@ -8,7 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "SwiftAgents", targets: [
-            "AgentCore", "AgentMemory", "AgentRAG",
+            "AgentMemory", "AgentRAG",
             "AgentTools", "AgentChains", "AgentObservability",
         ]),
     ],
@@ -29,28 +29,18 @@ let package = Package(
         // Retry logic and circuit breaker (production-tested)
         .package(url: "https://github.com/CorvidLabs/swift-retry", from: "0.1.0"),
 
-        // OpenAI integration (chat, embeddings, function calling)
-        .package(url: "https://github.com/MacPaw/OpenAI", branch: "main"),
+        // AgentRunKit - Production agent SDK (OpenAI, Anthropic, Gemini, MLX)
+        // Works on macOS 26 - will migrate to Foundation Models in iOS 27 (September)
+        .package(url: "https://github.com/Tom-Ryder/AgentRunKit.git", from: "5.3.0"),
 
-        // TODO: Add back when network stable - binary download times out
-        // .package(url: "https://github.com/jkrukowski/swift-embeddings", from: "0.1.0"),
+        // OpenAI for embeddings only (AgentRunKit handles LLM)
+        .package(url: "https://github.com/MacPaw/OpenAI", branch: "main"),
     ],
     targets: [
-        // Core: Wraps LLM backends behind a protocol
-        .target(
-            name: "AgentCore",
-            dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Retry", package: "swift-retry"),
-                .product(name: "OpenAI", package: "OpenAI"),
-            ]
-        ),
-
         // Memory: Buffer/window/summarization, session persistence
         .target(
             name: "AgentMemory",
             dependencies: [
-                "AgentCore",
                 .product(name: "Collections", package: "swift-collections"),
             ]
         ),
@@ -59,22 +49,25 @@ let package = Package(
         .target(
             name: "AgentRAG",
             dependencies: [
-                "AgentCore",
                 .product(name: "SQLiteVec", package: "SQLiteVec"),
-                // TODO: Add back when network stable
-                // .product(name: "Embeddings", package: "swift-embeddings"),
+                .product(name: "OpenAI", package: "OpenAI"),  // For embeddings
+                .product(name: "Logging", package: "swift-log"),
             ]
         ),
 
-        // Tools: Tool registry, parallel/sequential composition
-        .target(name: "AgentTools", dependencies: ["AgentCore", "AgentRAG"]),
+        // Tools: Memory tools using AgentRunKit + our VectorStore
+        .target(name: "AgentTools", dependencies: [
+            "AgentRAG",
+            .product(name: "AgentRunKit", package: "AgentRunKit"),
+        ]),
 
-        // Chains: ReAct loop + chain DSL
+        // Chains: AgentRunKit wrappers + builders
         .target(
             name: "AgentChains",
             dependencies: [
-                "AgentCore", "AgentTools", "AgentMemory", "AgentRAG",
-                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                "AgentTools", "AgentRAG",
+                .product(name: "AgentRunKit", package: "AgentRunKit"),
+                .product(name: "Logging", package: "swift-log"),
             ]
         ),
 
@@ -82,14 +75,13 @@ let package = Package(
         .target(
             name: "AgentObservability",
             dependencies: [
-                "AgentCore",
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
 
         .testTarget(
             name: "SwiftAgentsTests",
-            dependencies: ["AgentCore", "AgentMemory", "AgentRAG", "AgentTools", "AgentChains"]
+            dependencies: ["AgentMemory", "AgentRAG", "AgentTools", "AgentChains"]
         ),
     ]
 )
