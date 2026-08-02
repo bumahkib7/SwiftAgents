@@ -110,6 +110,7 @@ public struct AgentResponse: Sendable {
     public let message: AgentMessage
     public let stopReason: StopReason
     public let usage: Usage
+    public let cacheStats: CacheStats?
 
     public enum StopReason: Sendable {
         case endTurn
@@ -128,10 +129,11 @@ public struct AgentResponse: Sendable {
         }
     }
 
-    public init(message: AgentMessage, stopReason: StopReason, usage: Usage) {
+    public init(message: AgentMessage, stopReason: StopReason, usage: Usage, cacheStats: CacheStats? = nil) {
         self.message = message
         self.stopReason = stopReason
         self.usage = usage
+        self.cacheStats = cacheStats
     }
 }
 
@@ -191,14 +193,25 @@ public final class LanguageModelSession {
     private let backend: LanguageModelBackend
     private var messages: [AgentMessage] = []
     private let logger: Logger
+    private let cacheBuilder: CacheAwareMessageBuilder
+    private var cacheMetrics = CacheMetrics()
 
     public var conversationHistory: [AgentMessage] {
         messages
     }
 
-    public init(backend: LanguageModelBackend, logger: Logger = Logger(label: "AgentCore")) {
+    public var metrics: CacheMetrics {
+        cacheMetrics
+    }
+
+    public init(
+        backend: LanguageModelBackend,
+        cacheStrategy: CacheStrategy = .systemOnly,
+        logger: Logger = Logger(label: "AgentCore")
+    ) {
         self.backend = backend
         self.logger = logger
+        self.cacheBuilder = CacheAwareMessageBuilder(strategy: cacheStrategy)
     }
 
     /// Add a message to the conversation history
@@ -217,10 +230,13 @@ public final class LanguageModelSession {
         let userMessage = AgentMessage(role: .user, content: prompt)
         messages.append(userMessage)
 
+        // Apply cache control to messages
+        let cachedMessages = cacheBuilder.applyCache(to: messages)
+
         logger.info("Generating response for prompt (\(prompt.count) chars) with \(tools.count) tools")
 
         let response = try await backend.generate(
-            messages: messages,
+            messages: cachedMessages,
             tools: tools,
             maxTokens: maxTokens,
             temperature: temperature,
@@ -229,7 +245,14 @@ public final class LanguageModelSession {
 
         messages.append(response.message)
 
-        logger.info("Response generated: \(response.usage.outputTokens) tokens, stop reason: \(response.stopReason)")
+        // Track cache metrics
+        cacheMetrics.record(usage: response.usage, cacheStats: response.cacheStats)
+
+        if let stats = response.cacheStats {
+            logger.info("Response generated: \(response.usage.outputTokens) tokens, cache: \(stats.cacheReadTokens) read, \(stats.cacheCreationTokens) created, stop reason: \(response.stopReason)")
+        } else {
+            logger.info("Response generated: \(response.usage.outputTokens) tokens (no cache), stop reason: \(response.stopReason)")
+        }
 
         return response
     }
@@ -246,8 +269,11 @@ public final class LanguageModelSession {
         let userMessage = AgentMessage(role: .user, content: prompt)
         messages.append(userMessage)
 
+        // Apply cache control to messages
+        let cachedMessages = cacheBuilder.applyCache(to: messages)
+
         let response = try await backend.stream(
-            messages: messages,
+            messages: cachedMessages,
             tools: tools,
             maxTokens: maxTokens,
             temperature: temperature,
@@ -256,6 +282,10 @@ public final class LanguageModelSession {
         )
 
         messages.append(response.message)
+
+        // Track cache metrics
+        cacheMetrics.record(usage: response.usage, cacheStats: response.cacheStats)
+
         return response
     }
 
@@ -270,8 +300,11 @@ public final class LanguageModelSession {
     ) async throws -> AgentResponse {
         let allMessages = messages + newMessages
 
+        // Apply cache control to combined messages
+        let cachedMessages = cacheBuilder.applyCache(to: allMessages)
+
         let response = try await backend.stream(
-            messages: allMessages,
+            messages: cachedMessages,
             tools: tools,
             maxTokens: maxTokens,
             temperature: temperature,
@@ -281,6 +314,10 @@ public final class LanguageModelSession {
 
         messages.append(contentsOf: newMessages)
         messages.append(response.message)
+
+        // Track cache metrics
+        cacheMetrics.record(usage: response.usage, cacheStats: response.cacheStats)
+
         return response
     }
 

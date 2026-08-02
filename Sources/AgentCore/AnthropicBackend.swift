@@ -158,6 +158,8 @@ public struct AnthropicBackend: LanguageModelBackend {
         var stopReason: AgentResponse.StopReason = .endTurn
         var inputTokens = 0
         var outputTokens = 0
+        var cacheCreationTokens = 0
+        var cacheReadTokens = 0
         var linesProcessed = 0
 
         logger.info("Starting SSE stream parsing...")
@@ -203,10 +205,12 @@ public struct AnthropicBackend: LanguageModelBackend {
                 }
 
             case "message_start":
-                // Initial metadata
+                // Initial metadata including cache stats
                 if let message = json["message"] as? [String: Any],
                    let usage = message["usage"] as? [String: Int] {
                     inputTokens = usage["input_tokens"] ?? 0
+                    cacheCreationTokens = usage["cache_creation_input_tokens"] ?? 0
+                    cacheReadTokens = usage["cache_read_input_tokens"] ?? 0
                 }
 
             default:
@@ -214,6 +218,14 @@ public struct AnthropicBackend: LanguageModelBackend {
                     logger.debug("Ignoring event type: \(type ?? "unknown")")
                 }
             }
+        }
+
+        let cacheStats: CacheStats? = (cacheCreationTokens > 0 || cacheReadTokens > 0)
+            ? CacheStats(cacheCreationTokens: cacheCreationTokens, cacheReadTokens: cacheReadTokens)
+            : nil
+
+        if let stats = cacheStats {
+            logger.info("Stream cache stats: \(stats.cacheReadTokens) read, \(stats.cacheCreationTokens) created")
         }
 
         logger.info("Stream completed: \(linesProcessed) lines, \(accumulatedText.count) chars, \(inputTokens) + \(outputTokens) tokens")
@@ -227,7 +239,8 @@ public struct AnthropicBackend: LanguageModelBackend {
         return AgentResponse(
             message: message,
             stopReason: stopReason,
-            usage: AgentResponse.Usage(inputTokens: inputTokens, outputTokens: outputTokens)
+            usage: AgentResponse.Usage(inputTokens: inputTokens, outputTokens: outputTokens),
+            cacheStats: cacheStats
         )
     }
 
@@ -266,9 +279,22 @@ public struct AnthropicBackend: LanguageModelBackend {
 
         let stopReason = parseStopReason(json["stop_reason"] as? String)
 
+        // Parse usage including cache statistics
         let usage = json["usage"] as? [String: Int]
         let inputTokens = usage?["input_tokens"] ?? 0
         let outputTokens = usage?["output_tokens"] ?? 0
+
+        // Extract cache statistics (Anthropic prompt caching)
+        let cacheCreationTokens = usage?["cache_creation_input_tokens"] ?? 0
+        let cacheReadTokens = usage?["cache_read_input_tokens"] ?? 0
+
+        let cacheStats: CacheStats? = (cacheCreationTokens > 0 || cacheReadTokens > 0)
+            ? CacheStats(cacheCreationTokens: cacheCreationTokens, cacheReadTokens: cacheReadTokens)
+            : nil
+
+        if let stats = cacheStats {
+            logger.info("Cache stats: \(stats.cacheReadTokens) read, \(stats.cacheCreationTokens) created")
+        }
 
         // Extract text from text blocks (Claude can return multiple content blocks)
         var textParts: [String] = []
@@ -295,7 +321,8 @@ public struct AnthropicBackend: LanguageModelBackend {
         return AgentResponse(
             message: message,
             stopReason: stopReason,
-            usage: AgentResponse.Usage(inputTokens: inputTokens, outputTokens: outputTokens)
+            usage: AgentResponse.Usage(inputTokens: inputTokens, outputTokens: outputTokens),
+            cacheStats: cacheStats
         )
     }
 
