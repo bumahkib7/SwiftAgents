@@ -64,8 +64,15 @@ public struct AppleNLEmbedder: EmbeddingProvider {
 
         logger.debug("Embedding text (\(text.count) chars) with Apple NaturalLanguage")
 
-        // NLEmbedding provides word-level embeddings
-        // For sentence/document embeddings, we average word vectors
+        // Try sentence-level embedding first (if available)
+        if let sentenceVector = embedding.vector(for: text) {
+            // Sentence embedding worked! (macOS 12+ with sentenceEmbedder())
+            logger.debug("Sentence embedding generated: \(sentenceVector.count) dimensions")
+            return sentenceVector
+        }
+
+        // Fall back to word-level embeddings with average pooling
+        logger.debug("Using word-level embeddings with average pooling")
         let tokens = text.split(separator: " ").map(String.init)
 
         var wordVectors: [[Double]] = []
@@ -117,14 +124,49 @@ public struct AppleNLEmbedder: EmbeddingProvider {
 
 @available(macOS 11.0, iOS 14.0, *)
 public extension AppleNLEmbedder {
-    /// Alternative: Use sentence embedding if available (macOS 12+)
+    /// Create embedder using sentence-level embeddings if available (macOS 12+)
+    /// Sentence embeddings provide better semantic understanding for full sentences
     @available(macOS 12.0, iOS 15.0, *)
     static func sentenceEmbedder(
         language: Language = .english,
         logger: Logger = Logger(label: "AppleNLEmbedder")
     ) -> AppleNLEmbedder? {
-        // TODO: Implement sentence embedding support
-        // For now, just return word embedding
+        // Try sentence embedding first (better for semantic search)
+        if let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: language.nlLanguage) {
+            logger.info("Loaded Apple sentence embedding for \(language.nlLanguage.rawValue)")
+
+            // Create embedder with sentence-level model
+            let embedder = AppleNLEmbedder.__internal_init(
+                embedding: sentenceEmbedding,
+                logger: logger
+            )
+            return embedder
+        }
+
+        // Fall back to word embeddings
+        logger.warning("Sentence embedding not available for \(language.nlLanguage.rawValue), using word embedding")
         return AppleNLEmbedder(language: language, logger: logger)
+    }
+
+    /// Internal initializer for creating embedder with custom NLEmbedding
+    /// Used by sentenceEmbedder() to avoid failable init
+    @available(macOS 11.0, iOS 14.0, *)
+    static func __internal_init(
+        embedding: NLEmbedding,
+        logger: Logger
+    ) -> AppleNLEmbedder {
+        return AppleNLEmbedder(
+            __internal_embedding: embedding,
+            __internal_logger: logger
+        )
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, *)
+private extension AppleNLEmbedder {
+    /// Private initializer for internal use only
+    init(__internal_embedding embedding: NLEmbedding, __internal_logger logger: Logger) {
+        self.embedding = embedding
+        self.logger = logger
     }
 }
