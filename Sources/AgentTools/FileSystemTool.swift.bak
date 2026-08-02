@@ -1,0 +1,308 @@
+// AgentTools/FileSystemTool.swift
+// File system operations with exact line numbers and code locations
+
+import Foundation
+import AgentCore
+
+// MARK: - JSON Schema Wrapper
+
+/// Wrapper for JSON schema that's unchecked Sendable
+private struct SchemaWrapper: @unchecked Sendable {
+    let value: [String: Any]
+    init(_ value: [String: Any]) {
+        self.value = value
+    }
+}
+
+// MARK: - List Files Tool
+
+public struct ListFilesTool: AgentTool {
+    public let name = "list_files"
+    public let description = """
+    List files and directories with details. Shows file sizes, types, and structure.
+    Use this to understand project organization before reading specific files.
+    """
+
+    private let _inputSchema = SchemaWrapper([
+        "type": "object",
+        "properties": [
+            "path": [
+                "type": "string",
+                "description": "Path to list (relative to project root). Use '.' for project root."
+            ],
+            "pattern": [
+                "type": "string",
+                "description": "Optional glob pattern to filter (e.g., '*.kt', '*.java')"
+            ]
+        ],
+        "required": ["path"]
+    ])
+
+    public var inputSchema: [String: Any] {
+        _inputSchema.value
+    }
+
+    private let sandbox: SandboxExecutor
+
+    public init(sandbox: SandboxExecutor) {
+        self.sandbox = sandbox
+    }
+
+    public func execute(parameters: [String: Any]) async throws -> String {
+        guard let path = parameters["path"] as? String else {
+            throw ToolError.invalidParameters("Missing 'path'")
+        }
+
+        let pattern = parameters["pattern"] as? String
+
+        var command = "ls -lah \(path.shellEscaped())"
+        if let pattern = pattern {
+            command += " | grep '\(pattern.shellEscaped())'"
+        }
+
+        let result = try await sandbox.execute(command: command)
+
+        guard result.success else {
+            return "Error listing files: \(result.stderr)"
+        }
+
+        return """
+        # Files in \(path)
+
+        \(result.stdout)
+
+        Total lines: \(result.stdout.components(separatedBy: "\n").count)
+        """
+    }
+}
+
+// MARK: - Read File Tool
+
+public struct ReadFileTool: AgentTool {
+    public let name = "read_file"
+    public let description = """
+    Read a file with line numbers. Returns the complete file content with each line numbered.
+    Use this to examine code structure and find exact locations for modifications.
+    """
+
+    public let inputSchema: [String: Any] = [
+        "type": "object",
+        "properties": [
+            "file_path": [
+                "type": "string",
+                "description": "Path to the file to read (relative to project root)"
+            ],
+            "start_line": [
+                "type": "integer",
+                "description": "Optional: Start reading from this line number"
+            ],
+            "end_line": [
+                "type": "integer",
+                "description": "Optional: Stop reading at this line number"
+            ]
+        ],
+        "required": ["file_path"]
+    ]
+
+    private let sandbox: SandboxExecutor
+
+    public init(sandbox: SandboxExecutor) {
+        self.sandbox = sandbox
+    }
+
+    public func execute(parameters: [String: Any]) async throws -> String {
+        guard let filePath = parameters["file_path"] as? String else {
+            throw ToolError.invalidParameters("Missing 'file_path'")
+        }
+
+        // Build cat command with line numbers
+        var command = "cat -n \(filePath.shellEscaped())"
+
+        // Add line range if specified
+        if let startLine = parameters["start_line"] as? Int,
+           let endLine = parameters["end_line"] as? Int {
+            command = "sed -n '\(startLine),\(endLine)p' \(filePath.shellEscaped()) | cat -n"
+        } else if let startLine = parameters["start_line"] as? Int {
+            command = "tail -n +\(startLine) \(filePath.shellEscaped()) | cat -n"
+        } else if let endLine = parameters["end_line"] as? Int {
+            command = "head -n \(endLine) \(filePath.shellEscaped()) | cat -n"
+        }
+
+        let result = try await sandbox.execute(command: command)
+
+        guard result.success else {
+            return "Error reading file: \(result.stderr)"
+        }
+
+        let lineCount = result.stdout.components(separatedBy: "\n").count
+
+        return """
+        # File: \(filePath)
+        Lines: \(lineCount)
+
+        \(result.stdout)
+        """
+    }
+}
+
+// MARK: - Search Code Tool
+
+public struct SearchCodeTool: AgentTool {
+    public let name = "search_code"
+    public let description = """
+    Search for code patterns across the project. Returns file paths with exact line numbers.
+    Use this to find where classes, functions, or patterns are defined or used.
+    Essential for understanding where to make changes.
+    """
+
+    public let inputSchema: [String: Any] = [
+        "type": "object",
+        "properties": [
+            "pattern": [
+                "type": "string",
+                "description": "Search pattern (regex supported). Example: 'class UserService', 'fun login', etc."
+            ],
+            "file_pattern": [
+                "type": "string",
+                "description": "Optional: File pattern to search in (e.g., '*.kt', '*.java')"
+            ],
+            "context_lines": [
+                "type": "integer",
+                "description": "Number of context lines to show before/after match (default: 2)"
+            ]
+        ],
+        "required": ["pattern"]
+    ]
+
+    private let sandbox: SandboxExecutor
+
+    public init(sandbox: SandboxExecutor) {
+        self.sandbox = sandbox
+    }
+
+    public func execute(parameters: [String: Any]) async throws -> String {
+        guard let pattern = parameters["pattern"] as? String else {
+            throw ToolError.invalidParameters("Missing 'pattern'")
+        }
+
+        let filePattern = parameters["file_pattern"] as? String
+        let contextLines = parameters["context_lines"] as? Int ?? 2
+
+        // Try ripgrep first (faster), fall back to grep
+        var command: String
+
+        if await commandExists("rg") {
+            // Use ripgrep
+            command = "rg -n -C \(contextLines) '\(pattern.shellEscaped())'"
+            if let filePattern = filePattern {
+                command += " -g '\(filePattern.shellEscaped())'"
+            }
+        } else {
+            // Fall back to grep
+            command = "grep -rn -C \(contextLines) '\(pattern.shellEscaped())' ."
+            if let filePattern = filePattern {
+                command += " --include='\(filePattern.shellEscaped())'"
+            }
+        }
+
+        let result = try await sandbox.execute(command: command)
+
+        // grep returns exit code 1 if no matches (not an error)
+        if !result.success && result.exitCode != 1 {
+            return "Error searching: \(result.stderr)"
+        }
+
+        if result.stdout.isEmpty {
+            return "No matches found for pattern: \(pattern)"
+        }
+
+        return """
+        # Search Results for: \(pattern)
+
+        \(result.stdout)
+
+        Found in \(result.stdout.components(separatedBy: "\n").filter { $0.contains(":") }.count) locations
+        """
+    }
+
+    private func commandExists(_ command: String) async -> Bool {
+        do {
+            let result = try await sandbox.execute(command: "which \(command)")
+            return result.success
+        } catch {
+            return false
+        }
+    }
+}
+
+// MARK: - Find Files Tool
+
+public struct FindFilesTool: AgentTool {
+    public let name = "find_files"
+    public let description = """
+    Find files by name pattern across the project. Use this to locate specific files
+    when you know part of the filename but not the full path.
+    """
+
+    public let inputSchema: [String: Any] = [
+        "type": "object",
+        "properties": [
+            "pattern": [
+                "type": "string",
+                "description": "File name pattern to search for (e.g., '*Service.kt', 'build.gradle*')"
+            ],
+            "type": [
+                "type": "string",
+                "description": "Optional: 'f' for files, 'd' for directories (default: both)"
+            ]
+        ],
+        "required": ["pattern"]
+    ]
+
+    private let sandbox: SandboxExecutor
+
+    public init(sandbox: SandboxExecutor) {
+        self.sandbox = sandbox
+    }
+
+    public func execute(parameters: [String: Any]) async throws -> String {
+        guard let pattern = parameters["pattern"] as? String else {
+            throw ToolError.invalidParameters("Missing 'pattern'")
+        }
+
+        var command = "find . -name '\(pattern.shellEscaped())'"
+
+        if let type = parameters["type"] as? String {
+            command += " -type \(type)"
+        }
+
+        let result = try await sandbox.execute(command: command)
+
+        guard result.success else {
+            return "Error finding files: \(result.stderr)"
+        }
+
+        if result.stdout.isEmpty {
+            return "No files found matching pattern: \(pattern)"
+        }
+
+        let files = result.stdout.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+        return """
+        # Files matching '\(pattern)'
+
+        \(files.map { "- \($0)" }.joined(separator: "\n"))
+
+        Total: \(files.count) files
+        """
+    }
+}
+
+// MARK: - String Extension
+
+extension String {
+    func shellEscaped() -> String {
+        // Escape single quotes for shell safety
+        return replacingOccurrences(of: "'", with: "'\\''")
+    }
+}
