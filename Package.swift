@@ -8,8 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "SwiftAgents", targets: [
-            "AgentMemory", "AgentRAG",
-            "AgentTools", "AgentChains", "AgentObservability",
+            "AgentRAG", "AgentTools", "AgentChains",
         ]),
     ],
     dependencies: [
@@ -37,14 +36,6 @@ let package = Package(
         .package(url: "https://github.com/MacPaw/OpenAI", branch: "main"),
     ],
     targets: [
-        // Memory: Buffer/window/summarization, session persistence
-        .target(
-            name: "AgentMemory",
-            dependencies: [
-                .product(name: "Collections", package: "swift-collections"),
-            ]
-        ),
-
         // RAG: VectorStore protocol, document loaders, retrievers
         .target(
             name: "AgentRAG",
@@ -71,17 +62,9 @@ let package = Package(
             ]
         ),
 
-        // Observability: Tracing hooks
-        .target(
-            name: "AgentObservability",
-            dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-            ]
-        ),
-
         .testTarget(
             name: "SwiftAgentsTests",
-            dependencies: ["AgentMemory", "AgentRAG", "AgentTools", "AgentChains"]
+            dependencies: ["AgentRAG", "AgentTools", "AgentChains"]
         ),
     ]
 )

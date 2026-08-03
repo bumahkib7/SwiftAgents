@@ -3,7 +3,6 @@
 // TODO: Implement when needed
 
 import Foundation
-import AgentCore
 
 /// Placeholder for AgentRAG module
 /// This module will handle document embeddings and semantic retrieval

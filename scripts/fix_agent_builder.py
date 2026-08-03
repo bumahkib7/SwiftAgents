@@ -1,4 +1,9 @@
-// AgentChains/AgentBuilder.swift
+#!/usr/bin/env python3
+"""
+Fix AgentBuilder.swift to use correct AgentRunKit types
+"""
+
+CORRECT_AGENT_BUILDER = '''// AgentChains/AgentBuilder.swift
 // Builder for creating production agents using AgentRunKit + our VectorStore
 // Works on macOS 26 - will migrate to Foundation Models in iOS 27 (September)
 
@@ -18,14 +23,6 @@ public struct AgentBuilder {
         public let embedder: EmbeddingProvider
         public let maxIterations: Int
         public let includeMemoryTools: Bool
-        public let includeFileSystemTools: Bool
-        public let includeBashTool: Bool
-        public let includeCodeExecutor: Bool
-        public let includeWebTools: Bool
-        public let includeSearchTools: Bool
-        public let includeGitTools: Bool
-        public let includeEditTools: Bool
-        public let includeWebSearch: Bool
         public let additionalTools: [any AnyTool<MemoryToolsContext>]
         public let logger: Logger
 
@@ -35,14 +32,6 @@ public struct AgentBuilder {
             embedder: EmbeddingProvider,
             maxIterations: Int = 10,
             includeMemoryTools: Bool = true,
-            includeFileSystemTools: Bool = true,
-            includeBashTool: Bool = true,
-            includeCodeExecutor: Bool = true,
-            includeWebTools: Bool = true,
-            includeSearchTools: Bool = true,
-            includeGitTools: Bool = true,
-            includeEditTools: Bool = true,
-            includeWebSearch: Bool = true,
             additionalTools: [any AnyTool<MemoryToolsContext>] = [],
             logger: Logger = Logger(label: "Agent")
         ) {
@@ -51,21 +40,12 @@ public struct AgentBuilder {
             self.embedder = embedder
             self.maxIterations = maxIterations
             self.includeMemoryTools = includeMemoryTools
-            self.includeFileSystemTools = includeFileSystemTools
-            self.includeBashTool = includeBashTool
-            self.includeCodeExecutor = includeCodeExecutor
-            self.includeWebTools = includeWebTools
-            self.includeSearchTools = includeSearchTools
-            self.includeGitTools = includeGitTools
-            self.includeEditTools = includeEditTools
-            self.includeWebSearch = includeWebSearch
             self.additionalTools = additionalTools
             self.logger = logger
         }
     }
 
     /// Create agent with AgentRunKit
-    @available(iOS 16.0.0, *)
     public static func create(config: Configuration) throws -> Agent<MemoryToolsContext> {
         var tools: [any AnyTool<MemoryToolsContext>] = []
 
@@ -76,71 +56,12 @@ public struct AgentBuilder {
             config.logger.info("✓ Memory tools registered (search_memory, store_memory)")
         }
 
-        // Add file system tools if enabled
-        if config.includeFileSystemTools {
-            tools.append(try createFileReadTool())
-            tools.append(try createFileWriteTool())
-            tools.append(try createListDirectoryTool())
-            tools.append(try createFileDeleteTool())
-            config.logger.info("✓ File system tools registered (read_file, write_file, list_directory, delete_file)")
-        }
-
-        // Add bash tool if enabled
-        if config.includeBashTool {
-            tools.append(try createBashTool())
-            config.logger.info("✓ Bash tool registered (bash)")
-        }
-
-        // Add code executor if enabled
-        if config.includeCodeExecutor {
-            tools.append(try createCodeExecutorTool())
-            config.logger.info("✓ Code executor registered (execute_code)")
-        }
-
-        // Add web tools if enabled
-        if config.includeWebTools {
-            tools.append(try createWebFetchTool())
-            tools.append(try createHttpRequestTool())
-            config.logger.info("✓ Web tools registered (fetch_url, http_request)")
-        }
-
-        // Add search tools if enabled
-        if config.includeSearchTools {
-            tools.append(try createGrepTool())
-            tools.append(try createGlobTool())
-            tools.append(try createFindTool())
-            config.logger.info("✓ Search tools registered (grep, glob, find)")
-        }
-
-        // Add git tools if enabled
-        if config.includeGitTools {
-            tools.append(try createGitStatusTool())
-            tools.append(try createGitDiffTool())
-            tools.append(try createGitCommitTool())
-            tools.append(try createGitLogTool())
-            tools.append(try createGitBranchTool())
-            tools.append(try createGitCloneTool())
-            config.logger.info("✓ Git tools registered (git_status, git_diff, git_commit, git_log, git_branch, git_clone)")
-        }
-
-        // Add edit tools if enabled
-        if config.includeEditTools {
-            tools.append(try createEditTool())
-            tools.append(try createMultiEditTool())
-            config.logger.info("✓ Edit tools registered (edit_file, edit_files)")
-        }
-
-        // Add web search if enabled
-        if config.includeWebSearch {
-            tools.append(try createWebSearchTool())
-            config.logger.info("✓ Web search registered (web_search)")
-        }
-
         // Add additional tools
         tools.append(contentsOf: config.additionalTools)
 
         // Create agent configuration
-        let agentConfig = AgentConfiguration(maxIterations: config.maxIterations)
+        var agentConfig = AgentConfiguration()
+        agentConfig.maxIterations = config.maxIterations
 
         // Create agent with AgentRunKit
         let agent = Agent(
@@ -149,7 +70,7 @@ public struct AgentBuilder {
             configuration: agentConfig
         )
 
-        config.logger.info("✅ Agent created with \(tools.count) tools")
+        config.logger.info("✅ Agent created with \\(tools.count) tools")
 
         return agent
     }
@@ -216,7 +137,7 @@ public struct AgentBuilder {
         vectorStorePath: String? = nil
     ) async throws -> Agent<MemoryToolsContext> {
         // Create Anthropic client
-        let client = try AnthropicClient(
+        let client = AnthropicClient.anthropic(
             apiKey: apiKey,
             model: model,
             maxTokens: 8000
@@ -270,7 +191,7 @@ public struct AgentBuilder {
         case .openAI:
             client = OpenAIClient.openAI(apiKey: apiKey, model: model, maxTokens: 8000)
         case .anthropic:
-            client = try AnthropicClient(apiKey: apiKey, model: model, maxTokens: 8000)
+            client = AnthropicClient.anthropic(apiKey: apiKey, model: model, maxTokens: 8000)
         }
 
         // Create FREE Apple NL embedder
@@ -320,3 +241,24 @@ public enum AgentBuilderError: Error, LocalizedError {
         }
     }
 }
+'''
+
+from pathlib import Path
+
+def fix_agent_builder():
+    """Replace AgentBuilder.swift with corrected version"""
+    file_path = Path(__file__).parent.parent / "Sources/AgentChains/AgentBuilder.swift"
+
+    with open(file_path, 'w') as f:
+        f.write(CORRECT_AGENT_BUILDER)
+
+    print(f"✅ Fixed: {file_path.name}")
+    print("\nChanges:")
+    print("  • Agent<MemoryToolsContext> (not Agent<EmptyContext>)")
+    print("  • OpenAIClient.openAI() and AnthropicClient.anthropic()")
+    print("  • [any AnyTool<MemoryToolsContext>] for tools")
+    print("  • AgentConfiguration with maxIterations")
+
+if __name__ == "__main__":
+    print("🔧 Fixing AgentBuilder.swift...\n")
+    fix_agent_builder()

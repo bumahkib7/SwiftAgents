@@ -9,7 +9,7 @@ import AgentRAG
 // MARK: - Context
 
 /// Shared context for memory tools
-public struct MemoryToolsContext: Sendable {
+public struct MemoryToolsContext: ToolContext {
     public let vectorStore: VectorStore
     public let embedder: EmbeddingProvider
 
@@ -22,7 +22,7 @@ public struct MemoryToolsContext: Sendable {
 // MARK: - Memory Search Tool
 
 /// Parameters for memory search
-public struct MemorySearchParams: Codable, Sendable {
+public struct MemorySearchParams: Codable, Sendable, SchemaProviding {
     /// What to search for (natural language query)
     public let query: String
 
@@ -131,7 +131,7 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
 // MARK: - Memory Store Tool
 
 /// Parameters for storing memory
-public struct MemoryStoreParams: Codable, Sendable {
+public struct MemoryStoreParams: Codable, Sendable, SchemaProviding {
     /// Information to store
     public let information: String
 
