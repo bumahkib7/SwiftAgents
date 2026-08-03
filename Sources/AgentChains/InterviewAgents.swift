@@ -282,23 +282,50 @@ public struct SystemDesignAgent {
     }
 }
 
+// MARK: - AI Provider
+
+/// Supported AI providers for interview agents
+public enum AIProvider: String, Codable, Sendable {
+    case openai
+    case anthropic
+    case gemini
+}
+
 // MARK: - Interview Agent Builder
 
-/// Builder for creating interview-specific agents
+/// Builder for creating interview-specific agents with any major AI provider
 public struct InterviewAgentBuilder {
 
     /// Create behavioral interview agent
     public static func createBehavioral(
         apiKey: String,
-        model: String = "gpt-4o-mini", // Fast model for real-time
+        model: String,
+        provider: AIProvider = .openai,
         vectorStore: VectorStore,
         embedder: EmbeddingProvider
     ) throws -> BehavioralInterviewAgent {
-        let client = OpenAIClient.openAI(
-            apiKey: apiKey,
-            model: model,
-            maxTokens: 500 // Keep responses short
-        )
+        let client: any LLMClient
+
+        switch provider {
+        case .openai:
+            client = OpenAIClient.openAI(
+                apiKey: apiKey,
+                model: model,
+                maxTokens: 500
+            )
+        case .anthropic:
+            client = try AnthropicClient(
+                apiKey: apiKey,
+                model: model,
+                maxTokens: 500
+            )
+        case .gemini:
+            client = GeminiClient(
+                apiKey: apiKey,
+                model: model,
+                maxOutputTokens: 500
+            )
+        }
 
         return try BehavioralInterviewAgent(
             client: client,
@@ -310,15 +337,33 @@ public struct InterviewAgentBuilder {
     /// Create coding interview agent
     public static func createCoding(
         apiKey: String,
-        model: String = "gpt-4o-mini",
+        model: String,
+        provider: AIProvider = .openai,
         vectorStore: VectorStore,
         embedder: EmbeddingProvider
     ) throws -> CodingInterviewAgent {
-        let client = OpenAIClient.openAI(
-            apiKey: apiKey,
-            model: model,
-            maxTokens: 300
-        )
+        let client: any LLMClient
+
+        switch provider {
+        case .openai:
+            client = OpenAIClient.openAI(
+                apiKey: apiKey,
+                model: model,
+                maxTokens: 300
+            )
+        case .anthropic:
+            client = try AnthropicClient(
+                apiKey: apiKey,
+                model: model,
+                maxTokens: 300
+            )
+        case .gemini:
+            client = GeminiClient(
+                apiKey: apiKey,
+                model: model,
+                maxOutputTokens: 300
+            )
+        }
 
         return try CodingInterviewAgent(
             client: client,
@@ -330,59 +375,35 @@ public struct InterviewAgentBuilder {
     /// Create system design interview agent
     public static func createSystemDesign(
         apiKey: String,
-        model: String = "gpt-4o",  // Smarter model for architecture
+        model: String,
+        provider: AIProvider = .openai,
         vectorStore: VectorStore,
         embedder: EmbeddingProvider
     ) throws -> SystemDesignAgent {
-        let client = OpenAIClient.openAI(
-            apiKey: apiKey,
-            model: model,
-            maxTokens: 400
-        )
+        let client: any LLMClient
+
+        switch provider {
+        case .openai:
+            client = OpenAIClient.openAI(
+                apiKey: apiKey,
+                model: model,
+                maxTokens: 400
+            )
+        case .anthropic:
+            client = try AnthropicClient(
+                apiKey: apiKey,
+                model: model,
+                maxTokens: 400
+            )
+        case .gemini:
+            client = GeminiClient(
+                apiKey: apiKey,
+                model: model,
+                maxOutputTokens: 400
+            )
+        }
 
         return try SystemDesignAgent(
-            client: client,
-            vectorStore: vectorStore,
-            embedder: embedder
-        )
-    }
-
-    /// Create with Claude (better reasoning)
-    public static func createBehavioralWithClaude(
-        apiKey: String,
-        model: String = "claude-3-5-haiku-20241022", // Fast Haiku
-        openAIKey: String,
-        vectorStore: VectorStore,
-        embedder: EmbeddingProvider
-    ) throws -> BehavioralInterviewAgent {
-        let client = try AnthropicClient(
-            apiKey: apiKey,
-            model: model,
-            maxTokens: 500
-        )
-
-        return try BehavioralInterviewAgent(
-            client: client,
-            vectorStore: vectorStore,
-            embedder: embedder
-        )
-    }
-
-    /// Create coding agent with Claude
-    public static func createCodingWithClaude(
-        apiKey: String,
-        model: String = "claude-3-5-sonnet-20241022", // Better for code
-        openAIKey: String,
-        vectorStore: VectorStore,
-        embedder: EmbeddingProvider
-    ) throws -> CodingInterviewAgent {
-        let client = try AnthropicClient(
-            apiKey: apiKey,
-            model: model,
-            maxTokens: 300
-        )
-
-        return try CodingInterviewAgent(
             client: client,
             vectorStore: vectorStore,
             embedder: embedder
