@@ -181,14 +181,8 @@ public struct AgentBuilder {
             logger: Logger(label: "Embedder")
         )
 
-        // Create vector store
-        let vectorStore = try SQLiteVecStore(
-            path: vectorStorePath,
-            dimensions: embeddingModel.dimensions,
-            logger: Logger(label: "VectorStore")
-        )
-
-        try await vectorStore.setup()
+        // Create vector store (using InMemoryVectorStore - SQLiteVec has macOS compatibility issues)
+        let vectorStore = InMemoryVectorStore()
 
         let config = Configuration(
             client: client,
@@ -229,14 +223,8 @@ public struct AgentBuilder {
             logger: Logger(label: "Embedder")
         )
 
-        // Create vector store
-        let vectorStore = try SQLiteVecStore(
-            path: vectorStorePath,
-            dimensions: embeddingModel.dimensions,
-            logger: Logger(label: "VectorStore")
-        )
-
-        try await vectorStore.setup()
+        // Create vector store (using InMemoryVectorStore - SQLiteVec has macOS compatibility issues)
+        let vectorStore = InMemoryVectorStore()
 
         let config = Configuration(
             client: client,
@@ -281,14 +269,8 @@ public struct AgentBuilder {
             throw AgentBuilderError.embeddingInitFailed
         }
 
-        // Create vector store
-        let vectorStore = try SQLiteVecStore(
-            path: vectorStorePath,
-            dimensions: embedder.dimensions,
-            logger: Logger(label: "VectorStore")
-        )
-
-        try await vectorStore.setup()
+        // Create vector store (using InMemoryVectorStore - SQLiteVec has macOS compatibility issues)
+        let vectorStore = InMemoryVectorStore()
 
         let config = Configuration(
             client: client,

@@ -15,8 +15,9 @@ let package = Package(
         // For now: Direct Anthropic API integration (no FoundationModels until macOS 27 GA)
         // We'll add Apple's foundation-models-utilities when Xcode 27 is stable
 
-        // Vector store for RAG (sqlite-vec: no server needed)
-        .package(url: "https://github.com/jkrukowski/SQLiteVec", from: "0.0.9"),
+        // Vector store for RAG (sqlite-vec: OPTIONAL - has macOS compatibility issues)
+        // Use InMemoryVectorStore for development or if SQLiteVec fails to compile
+        // .package(url: "https://github.com/jkrukowski/SQLiteVec", from: "0.0.9"),
 
         // Concurrency primitives for agent loop
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -40,7 +41,8 @@ let package = Package(
         .target(
             name: "AgentRAG",
             dependencies: [
-                .product(name: "SQLiteVec", package: "SQLiteVec"),
+                // SQLiteVec made optional - use InMemoryVectorStore instead
+                // .product(name: "SQLiteVec", package: "SQLiteVec"),
                 .product(name: "OpenAI", package: "OpenAI"),  // For embeddings
                 .product(name: "Logging", package: "swift-log"),
             ]
