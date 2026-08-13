@@ -39,6 +39,12 @@ public struct BehavioralInterviewAgent {
         4. Help structure responses using STAR method (Situation, Task, Action, Result)
         5. Suggest relevant experiences from their background
 
+        CRITICAL - Language Matching for Search:
+        - When searching memory, use the SAME LANGUAGE as the question
+        - If question is in German, search in German (e.g., "adesso Erfahrung Projekte")
+        - If question is in English, search in English
+        - DO NOT translate search queries - language mismatch reduces search quality!
+
         Response format:
         - Keep suggestions SHORT (1-2 sentences max)
         - Use conversational, natural language
@@ -82,7 +88,9 @@ public struct BehavioralInterviewAgent {
         Role: \(role ?? "Unknown")
 
         YOUR TASK:
-        1. Search candidate's background for relevant experiences
+        1. Search candidate's background in the SAME LANGUAGE as the question
+           - Question language appears to be: \(question.contains("ä") || question.contains("ü") || question.contains("ö") || question.contains("ß") ? "German" : "detect from question")
+           - Use matching language keywords in your search (e.g., "adesso Projekte Erfahrung" if German)
         2. Suggest 2-3 KEY talking points using STAR method
         3. Keep it SHORT and conversational
         4. Respond in 15 seconds max
