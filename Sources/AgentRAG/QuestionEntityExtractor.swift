@@ -88,14 +88,17 @@ public struct QuestionEntityExtractor {
     }
 
     /// Create metadata filter for vector search based on extracted entities
-    public static func createMetadataFilter(from entities: ExtractedEntities) -> ((VectorMetadata) -> Bool)? {
+    public static func createMetadataFilter(from entities: ExtractedEntities) -> (@Sendable (VectorMetadata) -> Bool)? {
         // If no companies detected, don't filter
         guard !entities.normalizedCompanies.isEmpty else {
             return nil
         }
 
+        // Capture normalized companies locally to make closure Sendable
+        let capturedCompanies = entities.normalizedCompanies
+
         // Return filter that matches any of the detected companies
-        return { metadata in
+        return { @Sendable metadata in
             guard let companyData = metadata.customData["company_normalized"] else {
                 return false // No company metadata - exclude
             }
@@ -103,7 +106,7 @@ public struct QuestionEntityExtractor {
             let metadataCompany = companyData.lowercased()
 
             // Check if any detected company matches
-            return entities.normalizedCompanies.contains { detectedCompany in
+            return capturedCompanies.contains { detectedCompany in
                 metadataCompany.contains(detectedCompany) || detectedCompany.contains(metadataCompany)
             }
         }
