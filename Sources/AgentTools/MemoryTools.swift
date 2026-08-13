@@ -106,12 +106,13 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
             print("🔍 [HybridSearch] Detected companies: \(entities.companies.joined(separator: ", "))")
         }
 
-        // STEP 3a: Get all documents for keyword search (using zero similarity)
+        // STEP 3a: Get documents for keyword search (limit to reasonable size)
         let queryEmbedding = try await context.embedder.embed(text: params.query)
+        let candidateLimit = metadataFilter != nil ? 20 : 50  // Smaller set when filtered by company
         let allDocs = try await context.vectorStore.search(
             embedding: queryEmbedding,
-            topK: 100,  // Get all documents
-            minSimilarity: 0.0,  // No threshold
+            topK: candidateLimit,
+            minSimilarity: 0.0,  // No threshold for candidates
             filter: metadataFilter  // Apply metadata filter
         )
 
@@ -120,15 +121,10 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
         // STEP 3b: Build TF-IDF index and search keywords
         let tfidfDocuments = allDocs.map { (id: $0.metadata.id, text: $0.metadata.text) }
         let tfidfScorer = HybridSearch.TFIDFScorer(documents: tfidfDocuments)
-        let keywordResults = tfidfScorer.search(query: params.query, topK: topK * 2)
+        let keywordResults = tfidfScorer.search(query: params.query, topK: topK)
 
-        // STEP 3c: Run semantic search
-        let semanticResults = try await context.vectorStore.search(
-            embedding: queryEmbedding,
-            topK: topK * 2,
-            minSimilarity: 0.0,  // Get all for RRF
-            filter: metadataFilter
-        )
+        // STEP 3c: Run semantic search (reuse allDocs to avoid duplicate search)
+        let semanticResults = allDocs
 
         // STEP 4: Combine with Reciprocal Rank Fusion (RRF)
         let semanticScores = semanticResults.map { (id: $0.metadata.id, score: $0.similarity) }
@@ -143,7 +139,11 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
         print("🔍 [HybridSearch] RRF top-3: \(fusedResults.prefix(3).map { "\($0.id): \(String(format: "%.3f", $0.score))" }.joined(separator: ", "))")
 
         // STEP 5: Map RRF results back to full metadata
-        let idToMetadata = Dictionary(uniqueKeysWithValues: semanticResults.map { ($0.metadata.id, $0.metadata) })
+        // Use uniquingKeysWith to handle duplicate IDs (take first occurrence)
+        let idToMetadata = Dictionary(
+            semanticResults.map { ($0.metadata.id, $0.metadata) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let finalResults = fusedResults.prefix(topK).compactMap { fusedResult -> (metadata: VectorMetadata, score: Double)? in
             guard let metadata = idToMetadata[fusedResult.id] else { return nil }
             return (metadata: metadata, score: fusedResult.score)
