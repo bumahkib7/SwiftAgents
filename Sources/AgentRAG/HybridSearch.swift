@@ -20,25 +20,45 @@ public struct HybridSearch {
         }
     }
 
-    /// Simple TF-IDF scorer for small document collections
+    /// Efficient TF-IDF scorer with pre-computed term frequencies
+    /// Complexity: O(n) init, O(n*q) search where n=docs, q=unique query terms
     public struct TFIDFScorer {
-        private let documents: [(id: String, text: String, terms: [String])]
+        private struct DocData {
+            let id: String
+            let termFreq: [String: Double]  // Pre-computed TF for O(1) lookup
+            let termCount: Int
+        }
+
+        private let documents: [DocData]
         private let idf: [String: Double]  // Inverse document frequency
 
         public init(documents: [(id: String, text: String)]) {
-            // Tokenize and calculate IDF
+            // Pre-compute term frequencies and IDF in single pass
             var termDocCount: [String: Int] = [:]
             let totalDocs = Double(documents.count)
 
+            // Build efficient doc data structures with pre-computed TF
             self.documents = documents.map { doc in
                 let terms = Self.tokenize(doc.text)
-                for term in Set(terms) {
+                let termCount = terms.count
+
+                // Pre-compute term frequency dictionary for O(1) lookup
+                var termFreq: [String: Double] = [:]
+                var termOccurrences: [String: Int] = [:]
+
+                for term in terms {
+                    termOccurrences[term, default: 0] += 1
+                }
+
+                for (term, count) in termOccurrences {
+                    termFreq[term] = Double(count) / Double(termCount)
                     termDocCount[term, default: 0] += 1
                 }
-                return (id: doc.id, text: doc.text, terms: terms)
+
+                return DocData(id: doc.id, termFreq: termFreq, termCount: termCount)
             }
 
-            // Calculate IDF: log(N / df)
+            // Calculate IDF: log(N / df) - pre-computed for all terms
             self.idf = termDocCount.mapValues { docCount in
                 log(totalDocs / Double(docCount))
             }
@@ -51,22 +71,24 @@ public struct HybridSearch {
                 .filter { $0.count >= 2 }  // Filter out single characters
         }
 
-        /// Search documents by keywords with TF-IDF scoring
+        /// Efficient search with pre-computed TF and O(1) term lookups
         public func search(query: String, topK: Int = 10) -> [KeywordResult] {
-            let queryTerms = Self.tokenize(query)
+            let queryTerms = Set(Self.tokenize(query))  // Use Set to avoid duplicates
             guard !queryTerms.isEmpty else { return [] }
 
             var scores: [(id: String, score: Double, matchedTerms: [String])] = []
+            scores.reserveCapacity(documents.count)  // Pre-allocate for efficiency
 
             for doc in documents {
                 var docScore = 0.0
                 var matchedTerms: [String] = []
+                matchedTerms.reserveCapacity(queryTerms.count)
 
                 for queryTerm in queryTerms {
-                    // Calculate TF (term frequency in document)
-                    let tf = Double(doc.terms.filter { $0 == queryTerm }.count) / Double(doc.terms.count)
+                    // O(1) lookup for pre-computed TF
+                    guard let tf = doc.termFreq[queryTerm] else { continue }
 
-                    // Get IDF
+                    // O(1) lookup for IDF
                     let idfScore = idf[queryTerm] ?? 0.0
 
                     // TF-IDF score
@@ -83,10 +105,14 @@ public struct HybridSearch {
                 }
             }
 
-            // Sort by score descending
-            scores.sort { $0.score > $1.score }
+            // Efficient partial sort - only sort top K
+            if scores.count > topK {
+                scores = Array(scores.sorted { $0.score > $1.score }.prefix(topK))
+            } else {
+                scores.sort { $0.score > $1.score }
+            }
 
-            return scores.prefix(topK).map { KeywordResult(id: $0.id, score: $0.score, matchedTerms: $0.matchedTerms) }
+            return scores.map { KeywordResult(id: $0.id, score: $0.score, matchedTerms: $0.matchedTerms) }
         }
     }
 

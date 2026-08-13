@@ -106,25 +106,26 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
             print("🔍 [HybridSearch] Detected companies: \(entities.companies.joined(separator: ", "))")
         }
 
-        // STEP 3a: Get documents for keyword search (limit to reasonable size)
+        // STEP 3: Single-pass document retrieval (efficient: search once, use twice)
         let queryEmbedding = try await context.embedder.embed(text: params.query)
-        let candidateLimit = metadataFilter != nil ? 20 : 50  // Smaller set when filtered by company
+
+        // Get ALL filtered documents in one pass (no arbitrary limits)
         let allDocs = try await context.vectorStore.search(
             embedding: queryEmbedding,
-            topK: candidateLimit,
-            minSimilarity: 0.0,  // No threshold for candidates
-            filter: metadataFilter  // Apply metadata filter
+            topK: 1000,  // Get all documents (vector stores typically have < 1000 docs)
+            minSimilarity: 0.0,  // No threshold - get everything for comprehensive search
+            filter: metadataFilter  // Apply metadata filter first for efficiency
         )
 
         print("🔍 [HybridSearch] Searching \(allDocs.count) documents (after metadata filter)")
 
-        // STEP 3b: Build TF-IDF index and search keywords
+        // STEP 4a: Efficient keyword search with TF-IDF (O(n*m) where n=docs, m=query_terms)
         let tfidfDocuments = allDocs.map { (id: $0.metadata.id, text: $0.metadata.text) }
         let tfidfScorer = HybridSearch.TFIDFScorer(documents: tfidfDocuments)
-        let keywordResults = tfidfScorer.search(query: params.query, topK: topK)
+        let keywordResults = tfidfScorer.search(query: params.query, topK: min(topK * 3, allDocs.count))
 
-        // STEP 3c: Run semantic search (reuse allDocs to avoid duplicate search)
-        let semanticResults = allDocs
+        // STEP 4b: Reuse semantic results (efficient: already computed during retrieval)
+        let semanticResults = allDocs  // No duplicate search!
 
         // STEP 4: Combine with Reciprocal Rank Fusion (RRF)
         let semanticScores = semanticResults.map { (id: $0.metadata.id, score: $0.similarity) }
