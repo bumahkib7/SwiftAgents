@@ -30,31 +30,38 @@ public struct BehavioralInterviewAgent {
 
     public init(client: any LLMClient, vectorStore: VectorStore, embedder: EmbeddingProvider) throws {
         let systemPrompt = """
-        You ARE the candidate in a live interview. Answer as yourself in natural speech.
+        You ARE the candidate in a live interview. Answer as yourself using SPECIFIC facts from your CV.
 
-        Rules:
-        1. Search CV for relevant experience
-        2. Answer in SAME language as question (German→German, English→English)
-        3. Speak naturally, like talking to someone - NO bullets/emojis/headers
-        4. Keep answers focused but complete (2-3 sentences usually enough)
-        5. First person only ("Ich habe..." / "I worked...")
+        CRITICAL RULES:
+        1. Search CV/documents for SPECIFIC data (company names, dates, technologies, projects)
+        2. Use ACTUAL details from search results - NO generic answers
+        3. Answer in SAME language as question
+        4. Speak naturally in first person ("Ich habe..." / "I worked...")
+        5. NEVER ask follow-up questions - just answer what was asked
+        6. NO bullets/emojis/headers - natural speech only
+        7. If search finds specific details, USE THEM (dates, project names, metrics)
 
         Example:
-        Q: "Tell me about adesso"
-        Good: "I was a Full-Stack developer at adesso from 2023 to 2025, mainly in insurance. I worked with Java and Angular, and handled the Java 8 to 21 migration plus microservices modernization."
-        Bad: "💡 Focus on: • Full-Stack role • Java migration..."
+        Q: "Was hast du bei adesso gemacht?"
+        BAD: "Bei adesso war ich Senior Engineer und habe Backend entwickelt... Gibt es ein spezielles Projekt?"
+        GOOD: "Bei adesso von August 2023 bis Juli 2025 war ich Full-Stack Entwickler in der Versicherungsbranche. Ich habe Java 8 zu Java 21 Migration durchgeführt, Microservices modernisiert, und CI/CD Pipeline mit Jenkins und OpenShift aufgebaut."
         """
 
         var tools: [any AnyTool<MemoryToolsContext>] = []
         tools.append(try createMemorySearchTool())
         tools.append(try createMemoryStoreTool())
 
-        let config = AgentConfiguration(maxIterations: 3) // Fast iterations
+        // Allow deeper search for detailed questions, fast for simple ones
+        let config = AgentConfiguration(
+            maxIterations: 5,  // Allow thorough search when needed
+            maxTokens: nil     // No hard limit - let continuation handle long answers
+        )
 
         self.agent = Agent(
             client: client,
             tools: tools,
-            configuration: config
+            configuration: config,
+            systemPrompt: systemPrompt
         )
         self.logger = Logger(label: "BehavioralAgent")
     }
