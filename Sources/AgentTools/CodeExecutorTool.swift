@@ -22,6 +22,12 @@ extension ProgrammingLanguage: Codable {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
 
+        // Handle empty string (schema inference testing) - default to python
+        guard !rawValue.isEmpty else {
+            self = .python
+            return
+        }
+
         // Case-insensitive matching
         let lowercased = rawValue.lowercased()
 
