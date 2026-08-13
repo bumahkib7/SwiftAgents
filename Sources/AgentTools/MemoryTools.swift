@@ -43,21 +43,24 @@ public struct MemorySearchParams: Codable, Sendable, SchemaProviding {
     }
 }
 
-/// Create memory search tool
+/// Create memory search tool with hybrid search (keyword + semantic + RRF)
 public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, MemoryToolsContext> {
     try Tool(
         name: "search_memory",
         description: """
-        Search long-term memory for relevant information using semantic similarity.
+        Search long-term memory using HYBRID SEARCH (2026 production standard):
+        - Keyword matching (TF-IDF) for exact company/project names
+        - Semantic search (vector embeddings) for conceptual matches
+        - Metadata filtering for company-specific queries
+        - Reciprocal Rank Fusion to combine results
 
         Use this when you need to:
-        - Recall past conversations or interactions
-        - Find relevant context about a topic
+        - Find work experience at specific companies
+        - Recall past projects or interactions
+        - Look up technical skills or technologies used
         - Remember user preferences or information
-        - Look up previously discussed concepts
 
-        The search uses AI embeddings for semantic matching, not just keywords.
-        For example, searching "authentication" will also find "login", "security", etc.
+        Automatically detects company names and filters results for precision.
         """
     ) { params, context in
         let topK = params.topK ?? 5
@@ -72,68 +75,120 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
             return "Error: minSimilarity must be between 0.0 and 1.0"
         }
 
-        // Generate embedding for query
-        let queryEmbedding = try await context.embedder.embed(text: params.query)
+        // STEP 1: Extract entities from query (companies, skills, etc.)
+        let entities = QuestionEntityExtractor.extract(from: params.query)
 
-        // Build filter if tags provided
-        let filter: (@Sendable (VectorMetadata) -> Bool)?
-        if let filterTags = params.tags {
-            filter = { metadata in
-                !Set(metadata.tags).isDisjoint(with: Set(filterTags))
+        // STEP 2: Build metadata filter (pre-filter by company if detected)
+        let metadataFilter: (@Sendable (VectorMetadata) -> Bool)?
+        if let companyFilter = QuestionEntityExtractor.createMetadataFilter(from: entities) {
+            // Combine company filter with tag filter if provided
+            if let tagFilter = params.tags {
+                metadataFilter = { metadata in
+                    let tagsMatch = !Set(metadata.tags).isDisjoint(with: Set(tagFilter))
+                    return tagsMatch && companyFilter(metadata)
+                }
+            } else {
+                metadataFilter = companyFilter
             }
+        } else if let tagFilter = params.tags {
+            // Just tag filter
+            metadataFilter = { !Set($0.tags).isDisjoint(with: Set(tagFilter)) }
         } else {
-            filter = nil
+            metadataFilter = nil
         }
 
-        // Search vector store with VERY LOW threshold to see all candidates
-        let allResults = try await context.vectorStore.search(
+        print("🔍 [HybridSearch] Query: \"\(params.query)\"")
+        if !entities.companies.isEmpty {
+            print("🔍 [HybridSearch] Detected companies: \(entities.companies.joined(separator: ", "))")
+        }
+
+        // STEP 3a: Get all documents for keyword search (using zero similarity)
+        let queryEmbedding = try await context.embedder.embed(text: params.query)
+        let allDocs = try await context.vectorStore.search(
             embedding: queryEmbedding,
-            topK: topK * 2,  // Get more candidates for debugging
-            minSimilarity: 0.0,  // Get ALL results to see actual scores
-            filter: filter
+            topK: 100,  // Get all documents
+            minSimilarity: 0.0,  // No threshold
+            filter: metadataFilter  // Apply metadata filter
         )
 
-        // Debug logging - show ALL scores
-        print("🔍 [MemorySearch] Query: \"\(params.query)\"")
-        print("🔍 [MemorySearch] Threshold: \(Int(minSimilarity * 100))%, TopK: \(topK)")
-        print("🔍 [MemorySearch] ALL CANDIDATES (top 5 by similarity):")
-        for (i, result) in allResults.prefix(5).enumerated() {
-            let preview = String(result.metadata.text.prefix(60))
-            let tags = result.metadata.tags.joined(separator: ", ")
-            print("🔍 [MemorySearch]   [\(i+1)] \(Int(result.similarity * 100))% [\(tags)] - \(preview)...")
+        print("🔍 [HybridSearch] Searching \(allDocs.count) documents (after metadata filter)")
+
+        // STEP 3b: Build TF-IDF index and search keywords
+        let tfidfDocuments = allDocs.map { (id: $0.metadata.id, text: $0.metadata.text) }
+        let tfidfScorer = HybridSearch.TFIDFScorer(documents: tfidfDocuments)
+        let keywordResults = tfidfScorer.search(query: params.query, topK: topK * 2)
+
+        // STEP 3c: Run semantic search
+        let semanticResults = try await context.vectorStore.search(
+            embedding: queryEmbedding,
+            topK: topK * 2,
+            minSimilarity: 0.0,  // Get all for RRF
+            filter: metadataFilter
+        )
+
+        // STEP 4: Combine with Reciprocal Rank Fusion (RRF)
+        let semanticScores = semanticResults.map { (id: $0.metadata.id, score: $0.similarity) }
+        let fusedResults = HybridSearch.reciprocalRankFusion(
+            keywordResults: keywordResults,
+            semanticResults: semanticScores,
+            k: 60  // Standard RRF k value in 2026
+        )
+
+        print("🔍 [HybridSearch] Keyword top-3: \(keywordResults.prefix(3).map { "\($0.id): \(String(format: "%.3f", $0.score))" }.joined(separator: ", "))")
+        print("🔍 [HybridSearch] Semantic top-3: \(semanticResults.prefix(3).map { "\($0.metadata.id): \(Int($0.similarity * 100))%" }.joined(separator: ", "))")
+        print("🔍 [HybridSearch] RRF top-3: \(fusedResults.prefix(3).map { "\($0.id): \(String(format: "%.3f", $0.score))" }.joined(separator: ", "))")
+
+        // STEP 5: Map RRF results back to full metadata
+        let idToMetadata = Dictionary(uniqueKeysWithValues: semanticResults.map { ($0.metadata.id, $0.metadata) })
+        let finalResults = fusedResults.prefix(topK).compactMap { fusedResult -> (metadata: VectorMetadata, score: Double)? in
+            guard let metadata = idToMetadata[fusedResult.id] else { return nil }
+            return (metadata: metadata, score: fusedResult.score)
         }
 
-        // Filter by actual threshold
-        let results = allResults.filter { $0.similarity >= minSimilarity }.prefix(topK)
-        print("🔍 [MemorySearch] Found \(results.count) results above \(Int(minSimilarity * 100))% threshold")
+        // Search vector store with VERY LOW threshold to see all candidates (LEGACY - now using RRF)
+        let allResults = semanticResults  // For backward compatibility with debug logging
 
+        // Debug logging - show top results from each method
+        print("🔍 [HybridSearch] Final RRF Results (top 5):")
+        for (i, result) in finalResults.prefix(5).enumerated() {
+            let preview = String(result.metadata.text.prefix(60))
+            let tags = result.metadata.tags.joined(separator: ", ")
+            let company = result.metadata.customData["company"] ?? "n/a"
+            print("🔍 [HybridSearch]   [\(i+1)] RRF=\(String(format: "%.3f", result.score)) [\(company)] [\(tags)] - \(preview)...")
+        }
 
         // Format results
-        if results.isEmpty {
+        if finalResults.isEmpty {
             return """
-            🔍 Memory Search: No relevant memories found
+            🔍 Hybrid Memory Search: No relevant memories found
 
             Query: "\(params.query)"
-            Threshold: \(Int(minSimilarity * 100))% similarity
+            \(entities.companies.isEmpty ? "" : "Searched for companies: \(entities.companies.joined(separator: ", "))")
 
-            Try lowering min_similarity or rephrasing your query.
+            Try rephrasing your query or check if the information exists.
             """
         }
 
-        var output = "🧠 Memory Search Results (\(results.count) found)\n\n"
+        var output = "🧠 Hybrid Memory Search Results (\(finalResults.count) found)\n\n"
         output += "Query: \"\(params.query)\"\n"
-        output += "Similarity threshold: \(Int(minSimilarity * 100))%\n\n"
+        if !entities.companies.isEmpty {
+            output += "🏢 Companies detected: \(entities.companies.joined(separator: ", "))\n"
+        }
+        output += "🔬 Method: Keyword (TF-IDF) + Semantic (Vector) + RRF Fusion\n\n"
 
-        for (index, result) in results.enumerated() {
-            let percentage = Int(result.similarity * 100)
+        for (index, result) in finalResults.enumerated() {
+            let rrfScore = Int(result.score * 100)
             let timeAgo = formatTimeAgo(from: result.metadata.timestamp)
 
-            output += "[\(index + 1)] [\(percentage)% match] \(timeAgo)\n"
+            output += "[\(index + 1)] [RRF: \(rrfScore)] \(timeAgo)\n"
             output += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             output += "\(result.metadata.text)\n"
 
+            if let company = result.metadata.customData["company"] {
+                output += "\n🏢 Company: \(company)\n"
+            }
             if !result.metadata.tags.isEmpty {
-                output += "\n🏷️  Tags: \(result.metadata.tags.joined(separator: ", "))\n"
+                output += "🏷️  Tags: \(result.metadata.tags.joined(separator: ", "))\n"
             }
 
             output += "\n"
