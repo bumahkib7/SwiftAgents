@@ -61,7 +61,7 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
         """
     ) { params, context in
         let topK = params.topK ?? 5
-        let minSimilarity = params.minSimilarity ?? 0.7
+        let minSimilarity = params.minSimilarity ?? 0.5  // Lowered from 0.7 to improve semantic matching
 
         // Validate parameters
         guard topK >= 1 && topK <= 20 else {
@@ -92,6 +92,15 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
             minSimilarity: minSimilarity,
             filter: filter
         )
+
+        // Debug logging
+        print("🔍 [MemorySearch] Query: \"\(params.query)\"")
+        print("🔍 [MemorySearch] Threshold: \(Int(minSimilarity * 100))%, TopK: \(topK)")
+        print("🔍 [MemorySearch] Found \(results.count) results")
+        for (i, result) in results.prefix(3).enumerated() {
+            let preview = String(result.metadata.text.prefix(60))
+            print("🔍 [MemorySearch] [\(i+1)] \(Int(result.similarity * 100))% - \(preview)...")
+        }
 
         // Format results
         if results.isEmpty {
