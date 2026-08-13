@@ -61,7 +61,7 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
         """
     ) { params, context in
         let topK = params.topK ?? 5
-        let minSimilarity = params.minSimilarity ?? 0.5  // Lowered from 0.7 to improve semantic matching
+        let minSimilarity = params.minSimilarity ?? 0.3  // Lowered to 30% for better recall with Apple NL embeddings
 
         // Validate parameters
         guard topK >= 1 && topK <= 20 else {
@@ -85,22 +85,28 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
             filter = nil
         }
 
-        // Search vector store
-        let results = try await context.vectorStore.search(
+        // Search vector store with VERY LOW threshold to see all candidates
+        let allResults = try await context.vectorStore.search(
             embedding: queryEmbedding,
-            topK: topK,
-            minSimilarity: minSimilarity,
+            topK: topK * 2,  // Get more candidates for debugging
+            minSimilarity: 0.0,  // Get ALL results to see actual scores
             filter: filter
         )
 
-        // Debug logging
+        // Debug logging - show ALL scores
         print("🔍 [MemorySearch] Query: \"\(params.query)\"")
         print("🔍 [MemorySearch] Threshold: \(Int(minSimilarity * 100))%, TopK: \(topK)")
-        print("🔍 [MemorySearch] Found \(results.count) results")
-        for (i, result) in results.prefix(3).enumerated() {
+        print("🔍 [MemorySearch] ALL CANDIDATES (top 5 by similarity):")
+        for (i, result) in allResults.prefix(5).enumerated() {
             let preview = String(result.metadata.text.prefix(60))
-            print("🔍 [MemorySearch] [\(i+1)] \(Int(result.similarity * 100))% - \(preview)...")
+            let tags = result.metadata.tags.joined(separator: ", ")
+            print("🔍 [MemorySearch]   [\(i+1)] \(Int(result.similarity * 100))% [\(tags)] - \(preview)...")
         }
+
+        // Filter by actual threshold
+        let results = allResults.filter { $0.similarity >= minSimilarity }.prefix(topK)
+        print("🔍 [MemorySearch] Found \(results.count) results above \(Int(minSimilarity * 100))% threshold")
+
 
         // Format results
         if results.isEmpty {
