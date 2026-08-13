@@ -10,6 +10,7 @@ import Logging
 public struct AppleNLEmbedder: EmbeddingProvider {
     private nonisolated(unsafe) let embedding: NLEmbedding  // NLEmbedding is not Sendable
     private let logger: Logger
+    private let embeddingQueue = DispatchQueue(label: "com.swiftagents.appleNL.embedding", qos: .userInitiated)
 
     public enum Language {
         case english
@@ -89,45 +90,56 @@ public struct AppleNLEmbedder: EmbeddingProvider {
 
         logger.debug("Embedding text (\(sanitized.count) chars) with Apple NaturalLanguage")
 
-        // Try sentence-level embedding first (if available)
-        if let sentenceVector = embedding.vector(for: sanitized) {
-            // Sentence embedding worked! (macOS 12+ with sentenceEmbedder())
-            logger.debug("Sentence embedding generated: \(sentenceVector.count) dimensions")
-            return sentenceVector
-        }
+        // CRITICAL: Serialize access to NLEmbedding (NOT thread-safe!)
+        return try await withCheckedThrowingContinuation { continuation in
+            embeddingQueue.async { [self] in
+                do {
+                    // Try sentence-level embedding first (if available)
+                    if let sentenceVector = embedding.vector(for: sanitized) {
+                        // Sentence embedding worked! (macOS 12+ with sentenceEmbedder())
+                        logger.debug("Sentence embedding generated: \(sentenceVector.count) dimensions")
+                        continuation.resume(returning: sentenceVector)
+                        return
+                    }
 
-        // Fall back to word-level embeddings with average pooling
-        logger.debug("Using word-level embeddings with average pooling")
-        let tokens = sanitized.split(separator: " ").map(String.init)
+                    // Fall back to word-level embeddings with average pooling
+                    logger.debug("Using word-level embeddings with average pooling")
+                    let tokens = sanitized.split(separator: " ").map(String.init)
 
-        var wordVectors: [[Double]] = []
+                    var wordVectors: [[Double]] = []
 
-        for token in tokens {
-            if let vector = embedding.vector(for: token.lowercased()) {
-                wordVectors.append(vector)
+                    for token in tokens {
+                        if let vector = embedding.vector(for: token.lowercased()) {
+                            wordVectors.append(vector)
+                        }
+                    }
+
+                    guard !wordVectors.isEmpty else {
+                        continuation.resume(throwing: EmbeddingError.invalidResponse)
+                        return
+                    }
+
+                    // Average pooling: mean of all word vectors
+                    let dimensions = wordVectors[0].count
+                    var avgVector = [Double](repeating: 0.0, count: dimensions)
+
+                    for vector in wordVectors {
+                        for i in 0..<min(dimensions, vector.count) {
+                            avgVector[i] += vector[i]
+                        }
+                    }
+
+                    let count = Double(wordVectors.count)
+                    avgVector = avgVector.map { $0 / count }
+
+                    logger.debug("Embedding generated: \(avgVector.count) dimensions from \(wordVectors.count) words")
+
+                    continuation.resume(returning: avgVector)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
-
-        guard !wordVectors.isEmpty else {
-            throw EmbeddingError.invalidResponse
-        }
-
-        // Average pooling: mean of all word vectors
-        let dimensions = wordVectors[0].count
-        var avgVector = [Double](repeating: 0.0, count: dimensions)
-
-        for vector in wordVectors {
-            for i in 0..<min(dimensions, vector.count) {
-                avgVector[i] += vector[i]
-            }
-        }
-
-        let count = Double(wordVectors.count)
-        avgVector = avgVector.map { $0 / count }
-
-        logger.debug("Embedding generated: \(avgVector.count) dimensions from \(wordVectors.count) words")
-
-        return avgVector
     }
 
     public func embed(texts: [String]) async throws -> [[Double]] {
