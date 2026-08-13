@@ -7,12 +7,49 @@ import AgentRunKit
 // MARK: - Code Executor Parameters
 
 /// Supported programming languages for code execution
-public enum ProgrammingLanguage: String, Codable, Sendable {
+public enum ProgrammingLanguage: String, Sendable {
     case python
     case swift
     case javascript
     case bash
     case ruby
+}
+
+// MARK: - Custom Codable Implementation for Case-Insensitive Decoding
+
+extension ProgrammingLanguage: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+
+        // Case-insensitive matching
+        let lowercased = rawValue.lowercased()
+
+        switch lowercased {
+        case "python", "py":
+            self = .python
+        case "swift":
+            self = .swift
+        case "javascript", "js", "node":
+            self = .javascript
+        case "bash", "sh", "shell":
+            self = .bash
+        case "ruby", "rb":
+            self = .ruby
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Invalid programming language: '\(rawValue)'. Supported: python, swift, javascript, bash, ruby"
+                )
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.rawValue)
+    }
 }
 
 /// Parameters for code execution
@@ -39,6 +76,34 @@ public struct CodeExecuteParams: Codable, Sendable, SchemaProviding {
         self.code = code
         self.workingDirectory = workingDirectory
         self.timeout = timeout
+    }
+
+    // MARK: - Explicit JSON Schema for AgentRunKit
+
+    public static var jsonSchema: [String: Any] {
+        return [
+            "type": "object",
+            "properties": [
+                "language": [
+                    "type": "string",
+                    "enum": ["python", "swift", "javascript", "bash", "ruby"],
+                    "description": "Programming language (case-insensitive). Aliases: py, js, node, sh, shell, rb"
+                ],
+                "code": [
+                    "type": "string",
+                    "description": "Code to execute"
+                ],
+                "workingDirectory": [
+                    "type": "string",
+                    "description": "Working directory (optional)"
+                ],
+                "timeout": [
+                    "type": "integer",
+                    "description": "Timeout in seconds (max 30, optional)"
+                ]
+            ],
+            "required": ["language", "code"]
+        ]
     }
 }
 
