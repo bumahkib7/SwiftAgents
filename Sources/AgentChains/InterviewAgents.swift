@@ -54,14 +54,13 @@ public struct BehavioralInterviewAgent {
         // Allow deeper search for detailed questions, fast for simple ones
         let config = AgentConfiguration(
             maxIterations: 5,  // Allow thorough search when needed
-            maxTokens: nil     // No hard limit - let continuation handle long answers
+            systemPrompt: systemPrompt  // System prompt goes in config
         )
 
         self.agent = Agent(
             client: client,
             tools: tools,
-            configuration: config,
-            systemPrompt: systemPrompt
+            configuration: config
         )
         self.logger = Logger(label: "BehavioralAgent")
     }
