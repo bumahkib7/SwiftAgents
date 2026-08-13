@@ -83,8 +83,9 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
         if let companyFilter = QuestionEntityExtractor.createMetadataFilter(from: entities) {
             // Combine company filter with tag filter if provided
             if let tagFilter = params.tags {
-                metadataFilter = { metadata in
-                    let tagsMatch = !Set(metadata.tags).isDisjoint(with: Set(tagFilter))
+                let capturedTags = tagFilter  // Capture to make it Sendable
+                metadataFilter = { @Sendable metadata in
+                    let tagsMatch = !Set(metadata.tags).isDisjoint(with: Set(capturedTags))
                     return tagsMatch && companyFilter(metadata)
                 }
             } else {
@@ -92,7 +93,10 @@ public func createMemorySearchTool() throws -> Tool<MemorySearchParams, String, 
             }
         } else if let tagFilter = params.tags {
             // Just tag filter
-            metadataFilter = { !Set($0.tags).isDisjoint(with: Set(tagFilter)) }
+            let capturedTags = tagFilter  // Capture to make it Sendable
+            metadataFilter = { @Sendable metadata in
+                !Set(metadata.tags).isDisjoint(with: Set(capturedTags))
+            }
         } else {
             metadataFilter = nil
         }
