@@ -41,6 +41,25 @@ public struct AppleNLEmbedder: EmbeddingProvider {
         return 300  // Typical value for word embeddings
     }
 
+    /// Sanitize text to prevent NLEmbedding crashes on malformed input
+    private func sanitizeText(_ text: String) -> String {
+        var cleaned = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Remove nested quotes that cause crashes
+            .replacingOccurrences(of: "\"", with: "'")
+            // Normalize whitespace
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            // Remove control characters
+            .filter { !$0.isNewline && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }
+
+        // Limit length to prevent crashes (NLEmbedding can crash on very long text)
+        if cleaned.count > 1000 {
+            cleaned = String(cleaned.prefix(1000))
+        }
+
+        return cleaned
+    }
+
     public init?(
         language: Language = .english,
         logger: Logger = Logger(label: "AppleNLEmbedder")
@@ -62,10 +81,16 @@ public struct AppleNLEmbedder: EmbeddingProvider {
             throw EmbeddingError.emptyText
         }
 
-        logger.debug("Embedding text (\(text.count) chars) with Apple NaturalLanguage")
+        // Sanitize text to prevent NLEmbedding crashes
+        let sanitized = sanitizeText(text)
+        guard !sanitized.isEmpty else {
+            throw EmbeddingError.emptyText
+        }
+
+        logger.debug("Embedding text (\(sanitized.count) chars) with Apple NaturalLanguage")
 
         // Try sentence-level embedding first (if available)
-        if let sentenceVector = embedding.vector(for: text) {
+        if let sentenceVector = embedding.vector(for: sanitized) {
             // Sentence embedding worked! (macOS 12+ with sentenceEmbedder())
             logger.debug("Sentence embedding generated: \(sentenceVector.count) dimensions")
             return sentenceVector
@@ -73,7 +98,7 @@ public struct AppleNLEmbedder: EmbeddingProvider {
 
         // Fall back to word-level embeddings with average pooling
         logger.debug("Using word-level embeddings with average pooling")
-        let tokens = text.split(separator: " ").map(String.init)
+        let tokens = sanitized.split(separator: " ").map(String.init)
 
         var wordVectors: [[Double]] = []
 
