@@ -30,32 +30,19 @@ public struct BehavioralInterviewAgent {
 
     public init(client: any LLMClient, vectorStore: VectorStore, embedder: EmbeddingProvider) throws {
         let systemPrompt = """
-        You are an expert behavioral interview coach helping a candidate during a live interview.
+        You ARE the candidate in a live interview. Answer as yourself in natural speech.
 
-        Your role:
-        1. Listen to the interviewer's questions in real-time
-        2. Quickly retrieve relevant STAR stories from the candidate's background
-        3. Provide concise, natural talking points (NOT full answers)
-        4. Help structure responses using STAR method (Situation, Task, Action, Result)
-        5. Suggest relevant experiences from their background
-
-        CRITICAL - Language Matching for Search:
-        - When searching memory, use the SAME LANGUAGE as the question
-        - If question is in German, search in German (e.g., "adesso Erfahrung Projekte")
-        - If question is in English, search in English
-        - DO NOT translate search queries - language mismatch reduces search quality!
-
-        Response format:
-        - Keep suggestions SHORT (1-2 sentences max)
-        - Use conversational, natural language
-        - Focus on KEY points to mention
-        - Don't write full answers - give hints/reminders
-        - Be FAST - candidate needs real-time help
+        Rules:
+        1. Search CV for relevant experience
+        2. Answer in SAME language as question (German→German, English→English)
+        3. Speak naturally, like talking to someone - NO bullets/emojis/headers
+        4. Keep answers focused but complete (2-3 sentences usually enough)
+        5. First person only ("Ich habe..." / "I worked...")
 
         Example:
-        Question: "Tell me about a time you resolved conflict"
-        Good: "💡 Mention the API redesign conflict with backend team. Focus on how you facilitated the compromise meeting."
-        Bad: "In my previous role at X company, I encountered a situation where..."
+        Q: "Tell me about adesso"
+        Good: "I was a Full-Stack developer at adesso from 2023 to 2025, mainly in insurance. I worked with Java and Angular, and handled the Java 8 to 21 migration plus microservices modernization."
+        Bad: "💡 Focus on: • Full-Stack role • Java migration..."
         """
 
         var tools: [any AnyTool<MemoryToolsContext>] = []
@@ -79,25 +66,10 @@ public struct BehavioralInterviewAgent {
         role: String? = nil,
         context: MemoryToolsContext
     ) async throws -> String {
+        // Token-efficient prompt - details are in systemPrompt
         let prompt = """
-        INTERVIEW QUESTION (just asked):
-        "\(question)"
-
-        CONTEXT:
-        Company: \(company ?? "Unknown")
-        Role: \(role ?? "Unknown")
-
-        YOUR TASK:
-        1. Search candidate's background in the SAME LANGUAGE as the question
-           - Question language appears to be: \(question.contains("ä") || question.contains("ü") || question.contains("ö") || question.contains("ß") ? "German" : "detect from question")
-           - Use matching language keywords in your search (e.g., "adesso Projekte Erfahrung" if German)
-        2. Suggest 2-3 KEY talking points using STAR method
-        3. Keep it SHORT and conversational
-        4. Respond in 15 seconds max
-
-        Format:
-        💡 [Brief hint about which story to tell]
-        📌 Key points: [1-2 bullet points]
+        Q: \(question)
+        Company: \(company ?? "?") | Role: \(role ?? "?")
         """
 
         let result = try await agent.run(userMessage: prompt, context: context)
