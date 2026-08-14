@@ -51,9 +51,10 @@ public struct BehavioralInterviewAgent {
         tools.append(try createMemorySearchTool())
         tools.append(try createMemoryStoreTool())
 
-        // Allow deeper search for detailed questions, fast for simple ones
+        // Limit to 2 iterations for speed: 1 search call + 1 response
+        // More iterations = slower (agent tries multiple query variations)
         let config = AgentConfiguration(
-            maxIterations: 5,  // Allow thorough search when needed
+            maxIterations: 2,  // Fast: single search pass, then answer
             systemPrompt: systemPrompt  // System prompt goes in config
         )
 
